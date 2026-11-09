@@ -4,24 +4,18 @@ import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/settings";
 import { getCurrentUserId } from "~/lib/session";
+import { getPendingRefundRequests } from "~/lib/refund-requests.server";
 import { parseFormData } from "~/lib/validation";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
-import {
-  UserRole,
-  RefundStatus,
-  users,
-  courses,
-  purchases,
-  refunds,
-} from "~/db/schema";
+import { UserRole, users } from "~/db/schema";
 import { AlertTriangle } from "lucide-react";
 import { data, isRouteErrorResponse, Link } from "react-router";
 import { db } from "~/db";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { formatPrice } from "~/lib/utils";
 
 const settingsSchema = z.object({
@@ -55,25 +49,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     throw data("User not found.", { status: 404 });
   }
 
-  const pendingRefundRequests = db
-    .select({
-      id: refunds.id,
-      courseTitle: courses.title,
-      courseSlug: courses.slug,
-      amountPaid: purchases.amountPaid,
-      reason: refunds.reason,
-      requestedAt: refunds.requestedAt,
-    })
-    .from(refunds)
-    .innerJoin(purchases, eq(refunds.purchaseId, purchases.id))
-    .innerJoin(courses, eq(purchases.courseId, courses.id))
-    .where(
-      and(
-        eq(purchases.userId, currentUserId),
-        eq(refunds.status, RefundStatus.Pending)
-      )
-    )
-    .all();
+  const pendingRefundRequests = getPendingRefundRequests(currentUserId);
 
   return {
     user: {
