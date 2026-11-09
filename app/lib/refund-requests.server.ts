@@ -21,6 +21,7 @@ const REFUND_WATCH_LIMIT_SECONDS = 2 * 60 * 60;
 
 export type RefundRefusal =
   | "no-purchase"
+  | "refunded"
   | "pending-request"
   | "claimed-seat"
   | "window-closed"
@@ -53,14 +54,14 @@ function getLatestPurchase(userId: number, courseId: number) {
     .get();
 }
 
-function hasPendingRefundRequest(purchaseId: number) {
+function hasRefundRequest(purchaseId: number, status: RefundStatus) {
   const row = db
     .select({ id: refunds.id })
     .from(refunds)
     .where(
       and(
         eq(refunds.purchaseId, purchaseId),
-        eq(refunds.status, RefundStatus.Pending)
+        eq(refunds.status, status)
       )
     )
     .get();
@@ -131,7 +132,11 @@ export function getRefundEligibility(
   const purchase = getLatestPurchase(userId, courseId);
   if (!purchase) return { eligible: false, reason: "no-purchase" };
 
-  if (hasPendingRefundRequest(purchase.id)) {
+  if (hasRefundRequest(purchase.id, RefundStatus.Approved)) {
+    return { eligible: false, reason: "refunded" };
+  }
+
+  if (hasRefundRequest(purchase.id, RefundStatus.Pending)) {
     return { eligible: false, reason: "pending-request" };
   }
 

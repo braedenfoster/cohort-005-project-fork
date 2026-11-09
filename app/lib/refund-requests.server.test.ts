@@ -233,6 +233,15 @@ describe("getRefundEligibility", () => {
     });
   });
 
+  it("refuses a Refunded Purchase", () => {
+    const purchase = buy(10000);
+    addRefundRequest(purchase.id, schema.RefundStatus.Approved);
+
+    expect(
+      getRefundEligibility(base.user.id, base.course.id, daysAfterPurchase(3))
+    ).toEqual({ eligible: false, reason: "refunded" });
+  });
+
   it("allows a new Refund Request after a Declined one", () => {
     const purchase = buy(10000);
     addRefundRequest(purchase.id, schema.RefundStatus.Declined);

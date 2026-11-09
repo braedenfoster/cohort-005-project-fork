@@ -28,6 +28,10 @@ const refusalResponses: Record<
   { message: string; status: number }
 > = {
   "no-purchase": { message: "You have not bought this course.", status: 403 },
+  refunded: {
+    message: "This purchase has already been refunded.",
+    status: 409,
+  },
   "pending-request": {
     message: "You already have a pending refund request for this purchase.",
     status: 409,
