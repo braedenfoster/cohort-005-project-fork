@@ -102,9 +102,9 @@ function addSeats(purchaseId: number, count: number, claimed = 0) {
   }
 }
 
-function addRefundRequest(purchaseId: number, status: schema.RefundStatus) {
+function addRefundRequest(purchaseId: number, status: schema.RefundRequestStatus) {
   testDb
-    .insert(schema.refunds)
+    .insert(schema.refundRequests)
     .values({ purchaseId, status, reason: "It was not what I expected." })
     .run();
 }
@@ -198,7 +198,7 @@ describe("getRefundEligibility", () => {
 
   it("refuses while a Refund Request for the Purchase is Pending", () => {
     const purchase = buy(10000);
-    addRefundRequest(purchase.id, schema.RefundStatus.Pending);
+    addRefundRequest(purchase.id, schema.RefundRequestStatus.Pending);
 
     expect(
       getRefundEligibility(base.user.id, base.course.id, daysAfterPurchase(3))
@@ -235,7 +235,7 @@ describe("getRefundEligibility", () => {
 
   it("refuses a Refunded Purchase", () => {
     const purchase = buy(10000);
-    addRefundRequest(purchase.id, schema.RefundStatus.Approved);
+    addRefundRequest(purchase.id, schema.RefundRequestStatus.Approved);
 
     expect(
       getRefundEligibility(base.user.id, base.course.id, daysAfterPurchase(3))
@@ -244,7 +244,7 @@ describe("getRefundEligibility", () => {
 
   it("allows a new Refund Request after a Declined one", () => {
     const purchase = buy(10000);
-    addRefundRequest(purchase.id, schema.RefundStatus.Declined);
+    addRefundRequest(purchase.id, schema.RefundRequestStatus.Declined);
 
     expect(
       getRefundEligibility(base.user.id, base.course.id, daysAfterPurchase(3))
@@ -259,7 +259,7 @@ describe("createRefundRequest", () => {
     buy(3000, "IN");
 
     const result = createRefundRequest({
-      userId: base.user.id,
+      learnerId: base.user.id,
       courseId: base.course.id,
       reason,
       now: daysAfterPurchase(3),
@@ -282,7 +282,7 @@ describe("createRefundRequest", () => {
     complete(lessons[0].id);
 
     const result = createRefundRequest({
-      userId: base.user.id,
+      learnerId: base.user.id,
       courseId: base.course.id,
       reason,
       now: daysAfterPurchase(3),
@@ -295,7 +295,7 @@ describe("createRefundRequest", () => {
   it("refuses a second Refund Request while the first is Pending", () => {
     buy(10000);
     const request = {
-      userId: base.user.id,
+      learnerId: base.user.id,
       courseId: base.course.id,
       reason,
       now: daysAfterPurchase(3),

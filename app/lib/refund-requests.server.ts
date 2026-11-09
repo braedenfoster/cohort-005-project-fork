@@ -7,11 +7,11 @@ import {
   lessons,
   modules,
   purchases,
-  refunds,
+  refundRequests,
   users,
   videoWatchEvents,
   LessonProgressStatus,
-  RefundStatus,
+  RefundRequestStatus,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
 
@@ -45,23 +45,23 @@ function calendarDay(when: Date) {
   return `${when.getFullYear()}-${month}-${day}`;
 }
 
-function getLatestPurchase(userId: number, courseId: number) {
+function getLatestPurchase(learnerId: number, courseId: number) {
   return db
     .select()
     .from(purchases)
-    .where(and(eq(purchases.userId, userId), eq(purchases.courseId, courseId)))
+    .where(and(eq(purchases.userId, learnerId), eq(purchases.courseId, courseId)))
     .orderBy(sql`${purchases.createdAt} desc`)
     .get();
 }
 
-function hasRefundRequest(purchaseId: number, status: RefundStatus) {
+function hasRefundRequest(purchaseId: number, status: RefundRequestStatus) {
   const row = db
-    .select({ id: refunds.id })
-    .from(refunds)
+    .select({ id: refundRequests.id })
+    .from(refundRequests)
     .where(
       and(
-        eq(refunds.purchaseId, purchaseId),
-        eq(refunds.status, status)
+        eq(refundRequests.purchaseId, purchaseId),
+        eq(refundRequests.status, status)
       )
     )
     .get();
@@ -90,13 +90,13 @@ function getLessonIds(courseId: number) {
     .map((row) => row.id);
 }
 
-function getCompletedLessonCount(userId: number, lessonIds: number[]) {
+function getCompletedLessonCount(learnerId: number, lessonIds: number[]) {
   const result = db
     .select({ count: sql<number>`count(*)` })
     .from(lessonProgress)
     .where(
       and(
-        eq(lessonProgress.userId, userId),
+        eq(lessonProgress.userId, learnerId),
         eq(lessonProgress.status, LessonProgressStatus.Completed),
         inArray(lessonProgress.lessonId, lessonIds)
       )
@@ -107,7 +107,7 @@ function getCompletedLessonCount(userId: number, lessonIds: number[]) {
 
 // Rewatching a stretch of a lesson does not count twice: only the furthest
 // point reached in each lesson adds to the total.
-function getSecondsWatched(userId: number, lessonIds: number[]) {
+function getSecondsWatched(learnerId: number, lessonIds: number[]) {
   return db
     .select({
       furthest: sql<number>`max(${videoWatchEvents.positionSeconds})`,
@@ -115,7 +115,7 @@ function getSecondsWatched(userId: number, lessonIds: number[]) {
     .from(videoWatchEvents)
     .where(
       and(
-        eq(videoWatchEvents.userId, userId),
+        eq(videoWatchEvents.userId, learnerId),
         inArray(videoWatchEvents.lessonId, lessonIds)
       )
     )
@@ -125,18 +125,18 @@ function getSecondsWatched(userId: number, lessonIds: number[]) {
 }
 
 export function getRefundEligibility(
-  userId: number,
+  learnerId: number,
   courseId: number,
   now: Date
 ): RefundEligibility {
-  const purchase = getLatestPurchase(userId, courseId);
+  const purchase = getLatestPurchase(learnerId, courseId);
   if (!purchase) return { eligible: false, reason: "no-purchase" };
 
-  if (hasRefundRequest(purchase.id, RefundStatus.Approved)) {
+  if (hasRefundRequest(purchase.id, RefundRequestStatus.Approved)) {
     return { eligible: false, reason: "refunded" };
   }
 
-  if (hasRefundRequest(purchase.id, RefundStatus.Pending)) {
+  if (hasRefundRequest(purchase.id, RefundRequestStatus.Pending)) {
     return { eligible: false, reason: "pending-request" };
   }
 
@@ -153,11 +153,11 @@ export function getRefundEligibility(
 
   const lessonIds = getLessonIds(courseId);
   if (lessonIds.length > 0) {
-    const completed = getCompletedLessonCount(userId, lessonIds);
+    const completed = getCompletedLessonCount(learnerId, lessonIds);
     if (completed / lessonIds.length >= REFUND_COMPLETION_LIMIT) {
       return { eligible: false, reason: "completion-limit" };
     }
-    if (getSecondsWatched(userId, lessonIds) >= REFUND_WATCH_LIMIT_SECONDS) {
+    if (getSecondsWatched(learnerId, lessonIds) >= REFUND_WATCH_LIMIT_SECONDS) {
       return { eligible: false, reason: "watch-limit" };
     }
   }
@@ -200,18 +200,18 @@ function buildRefundRequestEmail(input: {
 
 // The caller sends the email.
 export function createRefundRequest(input: {
-  userId: number;
+  learnerId: number;
   courseId: number;
   reason: string;
   now: Date;
 }): CreateRefundRequestResult {
-  const eligibility = getRefundEligibility(input.userId, input.courseId, input.now);
+  const eligibility = getRefundEligibility(input.learnerId, input.courseId, input.now);
   if (!eligibility.eligible) return { ok: false, reason: eligibility.reason };
 
   const learner = db
     .select({ name: users.name, email: users.email })
     .from(users)
-    .where(eq(users.id, input.userId))
+    .where(eq(users.id, input.learnerId))
     .get();
   const course = db
     .select({ title: courses.title })
@@ -220,14 +220,14 @@ export function createRefundRequest(input: {
     .get();
   if (!learner || !course) {
     throw new Error(
-      `Refund Request for missing learner ${input.userId} or course ${input.courseId}`
+      `Refund Request for missing learner ${input.learnerId} or course ${input.courseId}`
     );
   }
 
-  db.insert(refunds)
+  db.insert(refundRequests)
     .values({
       purchaseId: eligibility.purchase.id,
-      status: RefundStatus.Pending,
+      status: RefundRequestStatus.Pending,
       reason: input.reason,
       requestedAt: input.now.toISOString(),
     })
@@ -244,21 +244,24 @@ export function createRefundRequest(input: {
   };
 }
 
-export function getPendingRefundRequests(userId: number) {
+export function getPendingRefundRequests(learnerId: number) {
   return db
     .select({
-      id: refunds.id,
+      id: refundRequests.id,
       courseTitle: courses.title,
       courseSlug: courses.slug,
       amountPaid: purchases.amountPaid,
-      reason: refunds.reason,
-      requestedAt: refunds.requestedAt,
+      reason: refundRequests.reason,
+      requestedAt: refundRequests.requestedAt,
     })
-    .from(refunds)
-    .innerJoin(purchases, eq(refunds.purchaseId, purchases.id))
+    .from(refundRequests)
+    .innerJoin(purchases, eq(refundRequests.purchaseId, purchases.id))
     .innerJoin(courses, eq(purchases.courseId, courses.id))
     .where(
-      and(eq(purchases.userId, userId), eq(refunds.status, RefundStatus.Pending))
+      and(
+        eq(purchases.userId, learnerId),
+        eq(refundRequests.status, RefundRequestStatus.Pending)
+      )
     )
     .all();
 }
