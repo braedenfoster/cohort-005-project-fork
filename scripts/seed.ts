@@ -76,6 +76,8 @@ async function seed() {
     DROP TABLE IF EXISTS coupons;
     DROP TABLE IF EXISTS team_members;
     DROP TABLE IF EXISTS teams;
+    DROP TABLE IF EXISTS refund_requests;
+    -- Databases seeded before migration 0011 still have the old table name.
     DROP TABLE IF EXISTS refunds;
     DROP TABLE IF EXISTS purchases;
     DROP TABLE IF EXISTS enrollments;

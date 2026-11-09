@@ -76,7 +76,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   const result = createRefundRequest({
-    userId: currentUserId,
+    learnerId: currentUserId,
     courseId: course.id,
     reason: parsed.data.reason,
     now: new Date(),
